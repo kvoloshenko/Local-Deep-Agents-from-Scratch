@@ -5,9 +5,6 @@ from io import BytesIO
 from PIL import Image as PILImage
 from datetime import datetime
 
-from IPython.display import Image, display
-from langchain.chat_models import init_chat_model
-#from langgraph.prebuilt import create_react_agent
 from langchain.agents import create_agent
 from utils import show_prompt, stream_agent
 from utils import format_messages
@@ -111,7 +108,7 @@ result = agent.invoke(
         "messages": [
             {
                 "role": "user",
-                "content": "Дай подробный обзор на русском языке на тему Преимущества и недостатки локальных LLM vs облачных API.",
+                "content": "Дай подробный обзор на русском языке на тему AI Deep Agents",
             }
         ],
     }

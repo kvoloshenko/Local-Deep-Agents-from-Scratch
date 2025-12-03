@@ -4,10 +4,15 @@ LocalDeepAgents_01
 Создание локальных Deep Agents на базе **LangGraph**, **LLMs**, **файловой памяти**, **планирования** и **субагентов**.
 
 ---
-
+![DeepAgents_02.png](Images/DeepAgents_02.png)
 Использованные материалы:
 
+Учебный курс: 
+
+https://academy.langchain.com/courses/deep-agents-with-langgraph
+
 https://github.com/langchain-ai/deep-agents-from-scratch
+
 
 ---
 

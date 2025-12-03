@@ -1,8 +1,6 @@
 
 import os
 from dotenv import load_dotenv
-from io import BytesIO
-from PIL import Image as PILImage
 from datetime import datetime
 
 #from langgraph.prebuilt import create_react_agent
@@ -71,8 +69,6 @@ SUBAGENT_INSTRUCTIONS = SUBAGENT_USAGE_INSTRUCTIONS.format(
     date=datetime.now().strftime("%Y-%m-%d"),
 )
 
-# print("RESEARCHER_INSTRUCTIONS")
-# show_prompt(RESEARCHER_INSTRUCTIONS)
 
 INSTRUCTIONS = (
     "# TODO MANAGEMENT\n"
@@ -89,29 +85,9 @@ INSTRUCTIONS = (
     + SUBAGENT_INSTRUCTIONS
 )
 
-# print("INSTRUCTIONS")
-# show_prompt(INSTRUCTIONS)
 
 # Create agent
 agent = create_agent(  #updated 1.0
     model, all_tools, system_prompt=INSTRUCTIONS, state_schema=DeepAgentState
 )
 
-# Show the agent
-# graph_bytes = agent.get_graph().draw_mermaid_png()
-# image = PILImage.open(BytesIO(graph_bytes))
-# image.show()
-
-
-# result = agent.invoke(
-#     {
-#         "messages": [
-#             {
-#                 "role": "user",
-#                 "content": "Дай подробный обзор на русском языке на тему Преимущества и недостатки локальных LLM vs облачных API.",
-#             }
-#         ],
-#     }
-# )
-#
-# format_messages(result["messages"])
