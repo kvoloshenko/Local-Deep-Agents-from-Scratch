@@ -795,6 +795,8 @@ Deep Agents — это:
 
 ---
 ## Тестирование:
+Пример вывода:
+[OutPut_01.txt](OutPut_01.txt)
 
 ![debug_01.png](Images/debug_01.png)
 
