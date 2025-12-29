@@ -4,10 +4,18 @@
 используемые в учебном framework deep agents.
 """
 
+# === ПОЛИТИКА ЯЗЫКА ОТВЕТОВ ===
+LANGUAGE_POLICY_RU = """ IMPORTANT: Always reply in Russian ONLY. Do not switch to English,
+even if the user, sources, or tool names are in English.
+Terms and proper names can be left as is, but explanations should be in Russian.
+If code/JSON output is required, comments and explanations should be in Russian.
+The response language does not depend on the user's query language. """
+
+
 # === ОПИСАНИЕ ИНСТРУМЕНТА: УПРАВЛЕНИЕ СПИСКОМ ЗАДАЧ (TODO) ===
 # Данное описание используется как документация для агента при вызове инструмента `write_todos`.
 # Указывает, когда, как и зачем нужно использовать управление задачами.
-WRITE_TODOS_DESCRIPTION = """Create and manage structured task lists in Russian 
+WRITE_TODOS_DESCRIPTION = LANGUAGE_POLICY_RU + """Create and manage structured task lists  
 for tracking progress through complex workflows.
 
 ## When to Use
@@ -39,12 +47,13 @@ Updates agent state with new todo list."""
 
 # === ИНСТРУКЦИИ ПО ИСПОЛЬЗОВАНИЮ СПИСКА ЗАДАЧ ===
 # Эти инструкции направляют агента в правильной последовательности работы с задачами.
-TODO_USAGE_INSTRUCTIONS = """Based upon the user's request:
+TODO_USAGE_INSTRUCTIONS = LANGUAGE_POLICY_RU + """Based upon the user's request:
 1. Use the write_todos tool to create TODO at the start of a user request, per the tool description.
 2. After you accomplish a TODO, use the read_todos to read the TODOs in order to remind yourself of the plan. 
 3. Reflect on what you've done and the TODO.
 4. Mark you task as completed, and proceed to the next TODO.
 5. Continue this process until you have completed all TODOs.
+6. Formulate all TODO points in Russian..
 
 IMPORTANT: Always create a research plan in Russian of TODOs and conduct research following the above guidelines for ANY user request.
 IMPORTANT: Aim to batch research tasks into a *single TODO* in order to minimize the number of TODOs you have to keep track of.
@@ -119,7 +128,7 @@ Today's date: {date}
 """
 
 #=== ИНСТРУКЦИИ ДЛЯ АГЕНТА-ИССЛЕДОВАТЕЛЯ ===
-RESEARCHER_INSTRUCTIONS = """You are a research assistant conducting research in Russian on the user's input topic. For context, today's date is {date}.
+RESEARCHER_INSTRUCTIONS = LANGUAGE_POLICY_RU + """You are a research assistant conducting research in Russian on the user's input topic. For context, today's date is {date}.
 
 <Task>
 Your job is to use tools to gather information about the user's input topic.
