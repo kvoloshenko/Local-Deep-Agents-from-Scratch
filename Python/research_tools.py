@@ -16,7 +16,6 @@ from datetime import datetime
 import uuid, base64  # uuid и base64 используются для генерации уникальных имён файлов
 
 import httpx
-# from langchain.chat_models import init_chat_model
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import InjectedToolArg, InjectedToolCallId, tool
@@ -27,15 +26,13 @@ from pydantic import BaseModel, Field
 from tavily import TavilyClient
 from typing_extensions import Annotated, Literal
 
-# from deep_agents_from_scratch.prompts import SUMMARIZE_WEB_SEARCH
 from prompts import SUMMARIZE_WEB_SEARCH
-# from deep_agents_from_scratch.state import DeepAgentState
 from state import DeepAgentState
 
 # Загружаем переменные окружения из файла .env
 load_dotenv()
 
-# Считываем переменные окружения, необходимые для LangSmith/LangChain
+# Считываем переменные окружения, необходимые для Tavily/LangSmith/LangChain
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
 LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING")
@@ -43,12 +40,10 @@ LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT")
 LLM = os.getenv("LLM")
 
 # ---------------------------------------------------------------------------
-# 🧠 МОДЕЛЬ ДЛЯ СУММАРИЗАЦИИ
+#  МОДЕЛЬ ДЛЯ СУММАРИЗАЦИИ
 # ---------------------------------------------------------------------------
 # Отдельная LLM-модель, которая будет использоваться для структурированной
-# суммаризации содержимого страниц. Здесь используется openai:gpt-4o-mini
-# через init_chat_model (LangChain).
-# summarization_model = init_chat_model(model="openai:gpt-4o-mini")
+# суммаризации содержимого страниц.
 summarization_model = ChatOllama(
     model=LLM,
     # опционально:
@@ -58,6 +53,32 @@ summarization_model = ChatOllama(
 
 # Клиент Tavily — внешний API для интеллектуального веб-поиска
 tavily_client = TavilyClient()
+
+
+# ---------------------------------------------------------------------------
+#  УТИЛИТА: ПЕРЕВОД ПОИСКОВОГО ЗАПРОСА НА АНГЛИЙСКИЙ
+# ---------------------------------------------------------------------------
+def translate_query_to_english(query: str) -> str:
+    """Переводит (или улучшает) поисковый запрос для веб-поиска на английском.
+
+    Требования:
+    - Возвращает ТОЛЬКО строку запроса (без кавычек, пояснений, маркдауна).
+    - Сохраняет имена, бренды, версии, аббревиатуры.
+    - Если запрос уже на английском, может слегка нормализовать, но не менять смысл.
+    """
+    # Важно: это *внутренний* перевод для улучшения качества поиска.
+    # Итоговые ответы и summary всё равно остаются на русском.
+    prompt = (
+        "Translate the following search query to English for web search. "
+        "Return ONLY the translated query as a single line, no quotes, no extra text.\n\n"
+        f"Query: {query}"
+    )
+    try:
+        resp = summarization_model.invoke([HumanMessage(content=prompt)])
+        translated = (resp.content or "").strip()
+        return translated if translated else query
+    except Exception:
+        return query
 
 
 class Summary(BaseModel):
@@ -71,155 +92,87 @@ class Summary(BaseModel):
     summary: str = Field(description="Key learnings from the webpage.")
 
 
-# def get_today_str() -> str:
-#     """Get current date in a human-readable format.
-#
-#     Возвращает текущую дату в удобочитаемом формате, который
-#     подставляется в промпты (например, при суммаризации).
-#     """
-#     return datetime.now().strftime("%a %b %-d, %Y")
-from datetime import datetime
 def get_today_str() -> str:
     """Get current date in a human-readable, cross-platform format."""
-    # "%a %b %d, %Y" даёт, например: "Mon Dec 01, 2025"
-    # Далее убираем ведущий ноль у дня месяца
     raw = datetime.now().strftime("%a %b %d, %Y")
     # "Dec 01" -> "Dec 1"
     return raw.replace(" 0", " ")
 
+
 def run_tavily_search(
-    search_query: str, 
-    max_results: int = 1, 
-    topic: Literal["general", "news", "finance"] = "general", 
-    include_raw_content: bool = True, 
+    search_query: str,
+    max_results: int = 1,
+    topic: Literal["general", "news", "finance"] = "general",
+    include_raw_content: bool = True,
 ) -> dict:
-    """Perform search using Tavily API for a single query.
-
-    Выполняет один запрос к Tavily API.
-
-    Args:
-        search_query: поисковый запрос
-        max_results: максимальное количество результатов
-        topic: тема (общий, новости, финансы)
-        include_raw_content: включать ли сырое содержимое страниц
-
-    Returns:
-        Словарь результатов Tavily (JSON → dict).
-    """
-    result = tavily_client.search(
-        search_query,
+    """Wrapper around tavily_client.search(...) to keep callsite clean."""
+    return tavily_client.search(
+        query=search_query,
         max_results=max_results,
+        topic=topic,
         include_raw_content=include_raw_content,
-        topic=topic
     )
-
-    return result
 
 
 def summarize_webpage_content(webpage_content: str) -> Summary:
-    """Summarize webpage content using the configured summarization model.
-
-    Суммаризирует содержимое страницы с использованием настроенной LLM-модели
-    и структурированного вывода в формате Summary.
-
-    Args:
-        webpage_content: сырое содержимое страницы (обычно markdown)
-
-    Returns:
-        Объект Summary с filename и summary.
-    """
+    """Summarize page content and generate filename using structured output."""
     try:
-        # Настраиваем модель на структурированный вывод согласно схеме Summary
-        structured_model = summarization_model.with_structured_output(Summary)
-
-        # Формируем промпт: подставляем содержимое страницы и дату в шаблон
-        summary_and_filename = structured_model.invoke([
-            HumanMessage(content=SUMMARIZE_WEB_SEARCH.format(
-                webpage_content=webpage_content, 
-                date=get_today_str()
-            ))
-        ])
-
-        # Модель возвращает Summary (filename + summary)
-        return summary_and_filename
-
-    except Exception:
-        # На случай любой ошибки — возвращаем запасной Summary,
-        # где summary = первые 1000 символов текста (или всё, если короче)
-        return Summary(
-            filename="search_result.md",
-            summary=webpage_content[:1000] + "..." if len(webpage_content) > 1000 else webpage_content
+        structured = summarization_model.with_structured_output(Summary)
+        prompt = SUMMARIZE_WEB_SEARCH.format(
+            webpage_content=webpage_content,
+            date=get_today_str(),
         )
+        result: Summary = structured.invoke([HumanMessage(content=prompt)])
+        return result
+    except Exception:
+        # fallback: если structured output не сработал
+        trimmed = webpage_content.strip()
+        if len(trimmed) > 800:
+            trimmed = trimmed[:800] + "..."
+        return Summary(filename="search_result.md", summary=trimmed)
 
 
 def process_search_results(results: dict) -> list[dict]:
-    """Process search results by summarizing content where available.
+    """Download content for each result, convert to markdown, summarize."""
+    processed = []
+    for r in results.get("results", []):
+        url = r.get("url")
+        title = r.get("title") or url
+        raw_content = ""
 
-    Обрабатывает результаты Tavily-поиска:
-    - пытается скачать HTML по URL,
-    - конвертирует HTML → markdown,
-    - суммаризирует содержимое,
-    - генерирует уникальное имя файла,
-    - возвращает список структурированных результатов.
+        # Если Tavily вернул raw_content — используем его
+        if r.get("raw_content"):
+            raw_content = r["raw_content"]
+        else:
+            # Иначе пытаемся скачать страницу сами
+            try:
+                with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+                    resp = client.get(url)
+                    resp.raise_for_status()
+                    raw_content = resp.text
+            except Exception:
+                raw_content = ""
 
-    Args:
-        results: словарь с результатами поиска Tavily
+        md = markdownify(raw_content) if raw_content else ""
+        summary_obj = summarize_webpage_content(md or raw_content or title)
 
-    Returns:
-        Список словарей: url, title, summary, filename, raw_content.
-    """
-    processed_results = []
+        # генерируем уникальное имя файла (чтобы не перетирать)
+        unique = uuid.uuid4().hex
+        safe_title = base64.urlsafe_b64encode(unique.encode()).decode()[:12]
+        filename = summary_obj.filename
+        if not filename or not filename.endswith(".md"):
+            filename = f"search_{safe_title}.md"
 
-    # Отдельный HTTP-клиент с таймаутом — чтобы не зависнуть на долгих запросах
-    HTTPX_CLIENT = httpx.Client(timeout=30.0)  # таймаут 30 секунд
-
-    # Итерируемся по списку результатов Tavily
-    for result in results.get('results', []):
-
-        # Извлекаем URL
-        url = result['url']
-
-        # Пытаемся считать страницу по URL
-        try:
-            response = HTTPX_CLIENT.get(url)
-
-            if response.status_code == 200:
-                # Если всё ок — конвертируем HTML → markdown
-                raw_content = markdownify(response.text)
-                # Суммаризируем markdown-содержимое
-                summary_obj = summarize_webpage_content(raw_content)
-            else:
-                # Если код ответа не 200 — fallback:
-                # используем сырое содержимое/summary от Tavily
-                raw_content = result.get('raw_content', '')
-                summary_obj = Summary(
-                    filename="URL_error.md",
-                    summary=result.get('content', 'Error reading URL; try another search.')
-                )
-        except (httpx.TimeoutException, httpx.RequestError) as e:
-            # Обработка ошибок соединения/таймаута — не ломаем пайплайн,
-            # а возвращаем понятное сообщение и используем Tavily content
-            raw_content = result.get('raw_content', '')
-            summary_obj = Summary(
-                filename="connection_error.md",
-                summary=result.get('content', f'Could not fetch URL (timeout/connection error). Try another search.')
-            )
-
-        # Генерируем уникальный суффикс для имени файла (чтобы не было коллизий)
-        uid = base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b"=").decode("ascii")[:8]
-        name, ext = os.path.splitext(summary_obj.filename)
-        summary_obj.filename = f"{name}_{uid}{ext}"
-
-        # Собираем структуру результата
-        processed_results.append({
-            'url': result['url'],
-            'title': result['title'],
-            'summary': summary_obj.summary,
-            'filename': summary_obj.filename,
-            'raw_content': raw_content,
-        })
-
-    return processed_results
+        processed.append(
+            {
+                "url": url,
+                "title": title,
+                "summary": summary_obj.summary,
+                "filename": filename,
+                "raw_content": md,
+            }
+        )
+    return processed
 
 
 @tool(parse_docstring=True)
@@ -237,104 +190,70 @@ def tavily_search(
     сводку: какие файлы созданы и что в них в целом содержится.
 
     Args:
-        query: поисковой запрос
-        state: состояние агента (InjectedState), нужно для доступа к files
-        tool_call_id: идентификатор вызова инструмента (для ToolMessage)
-        max_results: максимальное количество результатов
-        topic: тип поиска ('general' | 'news' | 'finance')
+        query: поисковой запрос (может быть на русском)
+        state: состояние агента (InjectedState),
+        tool_call_id: технический ID вызова инструмента,
+        max_results: сколько результатов взять (по умолчанию 1),
+        topic: тип поиска ('general' | 'news' | 'finance').
 
     Returns:
         Command, который:
         - обновляет files (создаёт файлы с результатами поиска),
         - добавляет ToolMessage с кратким summary.
     """
-    # 1. Выполняем Tavily-поиск
+    # 1) Переводим запрос на английский (для максимального recall в веб-поиске)
+    english_query = translate_query_to_english(query)
+
+    # 2) Запускаем Tavily-поиск (на английском)
     search_results = run_tavily_search(
-        query,
+        english_query,
         max_results=max_results,
         topic=topic,
         include_raw_content=True,
-    ) 
+    )
 
-    # 2. Обрабатываем и суммаризируем каждый результат
+    # 3) Обрабатываем результаты (скачивание/markdownify/summary)
     processed_results = process_search_results(search_results)
 
-    # 3. Подготовка обновлений файлов и краткой сводки
-    files = state.get("files", {})
-    saved_files = []
-    summaries = []
-
-    for i, result in enumerate(processed_results):
-        # Используем имя файла, возвращённое суммаризатором
-        filename = result['filename']
-
-        # Формируем содержимое файла:
-        # - заголовок
-        # - URL
-        # - исходный запрос
-        # - дата
-        # - краткое summary
-        # - сырое содержимое (markdown)
-        file_content = f"""# Search Result: {result['title']}
+    # 4) Сохраняем каждый результат в виртуальные файлы
+    new_files = dict(state.get("files", {}))
+    for result in processed_results:
+        content = f"""# Search Result: {result['title']}
 
 **URL:** {result['url']}
-**Query:** {query}
+**Query (original):** {query}
+**Query (english):** {english_query}
 **Date:** {get_today_str()}
 
 ## Summary
 {result['summary']}
 
 ## Raw Content
-{result['raw_content'] if result['raw_content'] else 'No raw content available'}
+{result['raw_content']}
 """
+        new_files[result["filename"]] = content
 
-        # Сохраняем в виртуальную файловую систему (state["files"])
-        files[filename] = file_content
-        saved_files.append(filename)
-        # Для краткой сводки добавляем одну строку по каждому файлу
-        summaries.append(f"- {filename}: {result['summary']}...")
+    # 5) Формируем минимальный текст для ToolMessage (в контекст)
+    lines = []
+    for r in processed_results:
+        lines.append(f"- {r['filename']}: {r['summary']}")
 
-    # 4. Краткое текстовое summary для ToolMessage — чтобы агент понимал:
-    # - сколько результатов найдено,
-    # - как они примерно выглядят,
-    # - имена файлов, которые можно читать через read_file().
-    summary_text = f"""🔍 Found {len(processed_results)} result(s) for '{query}':
+    summary_text = (
+        f"Found {len(processed_results)} result(s). "
+        f"Saved to files:\n" + "\n".join(lines)
+    )
 
-{chr(10).join(summaries)}
-
-Files: {', '.join(saved_files)}
-💡 Use read_file() to access full details when needed."""
-
-    # 5. Возвращаем Command — LangGraph применит обновления к state.
     return Command(
         update={
-            "files": files,
+            "files": new_files,
             "messages": [
-                ToolMessage(summary_text, tool_call_id=tool_call_id)
+                ToolMessage(content=summary_text, tool_call_id=tool_call_id)
             ],
         }
     )
 
 
-@tool(parse_docstring=True)
+@tool
 def think_tool(reflection: str) -> str:
-    """Tool for strategic reflection on research progress and decision-making.
-
-    Инструмент для стратегической рефлексии в процессе исследования.
-
-    Зачем нужен:
-    - создать «паузу на подумать» между вызовами поисковых инструментов;
-    - явно формулировать:
-        * что уже найдено,
-        * чего не хватает,
-        * достаточно ли данных,
-        * стоит ли продолжать поиск или уже отвечать.
-
-    Args:
-        reflection: развёрнутая мысль агента о ходе исследования
-
-    Returns:
-        Строка-подтверждение, что рефлексия «записана».
-        (Важно для логов и понимания человеком, как мыслит агент.)
-    """
+    """No-op инструмент для управляемой рефлексии."""
     return f"Reflection recorded: {reflection}"
